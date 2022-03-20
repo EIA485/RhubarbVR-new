@@ -47,7 +47,6 @@ namespace RhuEngine.WorldObjects
 				IsDeserializing = false;
 				AddLocalUser();
 				ConnectedToSession(false);
-				IsLoadingNet = false;
 				WaitingForWorldStartState = false;
 			}
 			else {
@@ -88,50 +87,58 @@ namespace RhuEngine.WorldObjects
 
 		private void ConnectedToSession(bool joiningSession) {
 			Task.Run(async () => {
-				var Pings = new Dictionary<string, int>();
-				var servers = await Engine.netApiManager.GetRelayHoleServers();
-				foreach (var item in servers) {
-					var pingSender = new Ping();
-					var e = pingSender.Send(item.IP, 500);
-					if ((e?.Status ?? IPStatus.Unknown) == IPStatus.Success) {
-						Pings.Add(item.IP, (int)e.RoundtripTime);
+				IsLoadingNet= true;
+				LoadNatManager();
+				try {
+					var Pings = new Dictionary<string, int>();
+					var servers = await Engine.netApiManager.GetRelayHoleServers();
+					foreach (var item in servers) {
+						var pingSender = new Ping();
+						var e = pingSender.Send(new Uri(item.IP).Host, 500);
+						if ((e?.Status ?? IPStatus.Unknown) == IPStatus.Success) {
+							Pings.Add(item.IP, (int)e.RoundtripTime);
+						}
 					}
-				}
-				//TODO: add support for changeing on connection info 
-				var userConnection = new UserConnectionInfo {
-					ConnectionType = ConnectionType.HolePunch,
-					ServerPingLevels = Pings,
-					Data = null
-				};
-				if (!joiningSession) {
-					SessionID.Value = Guid.NewGuid().ToString();
-					var sessionInfo = new SessionInfo {
-						ActiveUsers = 1,
-						Admins = Admins,
-						AssociatedGroup = AssociatedGroup.Value,
-						IsHidden = IsHidden.Value,
-						MaxUsers = MaxUserCount.Value,
-						ThumNail = ThumNail.Value,
-						SessionTags = SessionTags,
-						SessionAccessLevel = AccessLevel.Value,
-						SessionName = SessionName.Value,
-						NormalizedSessionName = SessionName.Value.Normalize(),
-						SessionId = SessionID.Value
+					//TODO: add support for changeing on connection info 
+					var userConnection = new UserConnectionInfo {
+						ConnectionType = ConnectionType.HolePunch,
+						ServerPingLevels = Pings,
+						Data = null
 					};
-					var sessionConnection = new SessionCreation {
-						SessionInfo = sessionInfo,
-						UserConnectionInfo = userConnection,
-						ForceJoin = Array.Empty<string>()
-					};
-					Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = JsonConvert.SerializeObject(sessionConnection), RequestType = RequestType.CreateSession });
+					if (!joiningSession) {
+						SessionID.Value = Guid.NewGuid().ToString();
+						var sessionInfo = new SessionInfo {
+							ActiveUsers = 1,
+							Admins = Admins,
+							AssociatedGroup = AssociatedGroup.Value,
+							IsHidden = IsHidden.Value,
+							MaxUsers = MaxUserCount.Value,
+							ThumNail = ThumNail.Value,
+							SessionTags = SessionTags,
+							SessionAccessLevel = AccessLevel.Value,
+							SessionName = SessionName.Value,
+							NormalizedSessionName = SessionName.Value.Normalize(),
+							SessionId = SessionID.Value
+						};
+						var sessionConnection = new SessionCreation {
+							SessionInfo = sessionInfo,
+							UserConnectionInfo = userConnection,
+							ForceJoin = Array.Empty<string>()
+						};
+						Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = JsonConvert.SerializeObject(sessionConnection), RequestType = RequestType.CreateSession });
 
+					}
+					else {
+						var sessionConnection = new JoinSession {
+							SessionID = SessionID.Value,
+							UserConnectionInfo = userConnection,
+						};
+						Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = JsonConvert.SerializeObject(sessionConnection), RequestType = RequestType.JoinSession });
+					}
+					IsLoadingNet = false;
 				}
-				else {
-					var sessionConnection = new JoinSession {
-						SessionID = SessionID.Value,
-						UserConnectionInfo = userConnection,
-					};
-					Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = JsonConvert.SerializeObject(sessionConnection), RequestType = RequestType.JoinSession });
+				catch (Exception ex) {
+					LoadMsg = "Failed to Connected To Session" + ex.Message;
 				}
 			});
 		}
