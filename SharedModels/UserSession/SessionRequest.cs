@@ -14,6 +14,7 @@ namespace SharedModels.UserSession
 		SessionError,
 		ConnectToUser,
 		SessionID,
+		LoadStartingStatus,
 	}
 	public class SessionRequest
 	{

@@ -9,11 +9,11 @@ using RhuEngine.WorldObjects.ECS;
 using RhuEngine.AssetSystem;
 using StereoKit;
 using RhuEngine.Components;
+using SharedModels.Session;
 
 namespace RhuEngine.WorldObjects
 {
-	public partial class World : IWorldObject
-	{
+	public partial class World : IWorldObject {
 
 		public bool IsLoading => IsDeserializing || IsLoadingNet;
 
@@ -25,7 +25,7 @@ namespace RhuEngine.WorldObjects
 
 		public World(WorldManager worldManager) {
 			this.worldManager = worldManager;
-			assetSession = new AssetSession(worldManager.Engine.assetManager,this);
+			assetSession = new AssetSession(worldManager.Engine.assetManager, this);
 		}
 
 		public string LoadMsg = "Starting to LoadWorld";
@@ -86,8 +86,7 @@ namespace RhuEngine.WorldObjects
 		}
 
 
-		public enum FocusLevel
-		{
+		public enum FocusLevel {
 			Background,
 			Focused,
 			Overlay,
@@ -105,7 +104,7 @@ namespace RhuEngine.WorldObjects
 					_focus = value;
 					if (value == FocusLevel.Focused) {
 						if (worldManager.FocusedWorld != null) {
-							worldManager.FocusedWorld._focus = FocusLevel.Background;
+							worldManager.FocusedWorld.Focus = FocusLevel.Background;
 						}
 						worldManager.FocusedWorld = this;
 						if (GetLocalUser() is not null) {
@@ -134,12 +133,46 @@ namespace RhuEngine.WorldObjects
 
 		[NoSync]
 		[NoSave]
+		[NoSyncUpdate]
 		public Sync<string> SessionID;
 
 		[NoSave]
 		[Default("New Session")]
-		[OnChanged(nameof(SessionNameChanged))]
+		[OnChanged(nameof(SessionInfoChanged))]
 		public Sync<string> SessionName;
+
+		[NoSave]
+		[Default("https://rhubarbvr.net/images/RhubarbVR2.png")]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public Sync<string> ThumNail;
+
+		[NoSave]
+		[Default(false)]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public Sync<bool> IsHidden;
+
+		[NoSave]
+		[Default(null)]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public Sync<string> AssociatedGroup;
+
+		[NoSave]
+		[Default(SessionAccessLevel.Public)]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public Sync<SessionAccessLevel> AccessLevel;
+
+		[NoSave]
+		[Default(30)]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public Sync<int> MaxUserCount;
+
+		[NoSave]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public SyncValueList<string> SessionTags;
+
+		[NoSave]
+		[OnChanged(nameof(SessionInfoChanged))]
+		public SyncValueList<string> Admins;
 
 		[Default("New World")]
 		public Sync<string> WorldName;
@@ -147,6 +180,7 @@ namespace RhuEngine.WorldObjects
 		public string WorldDebugName => $"{(IsPersonalSpace ? "P" : "")}{((worldManager.LocalWorld == this) ? "L" : "")} {SessionName.Value}";
 
 		private void UpdateFocus() {
+
 		}
 
 		/// <summary>
@@ -222,14 +256,6 @@ namespace RhuEngine.WorldObjects
 						}
 					}
 				}
-			}
-			catch { }
-			try {
-				_client?.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).Wait();
-			}
-			catch { }
-			try {
-				_client?.Dispose();
 			}
 			catch { }
 			try {

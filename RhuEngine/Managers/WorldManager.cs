@@ -11,6 +11,7 @@ using RhuEngine.DataStructure;
 using RhuEngine.WorldObjects;
 
 using SharedModels;
+using SharedModels.GameSpecific;
 
 using StereoKit;
 
@@ -76,6 +77,19 @@ namespace RhuEngine.Managers
 					_isRunning.Pop();
 				}
 			});
+		}
+
+		public World GetWorldBySessionID(string sessionID) {
+			for (var i = 0; i < worlds.Count; i++) {
+				try {
+					if (worlds[i].SessionID.Value == sessionID) {
+						return worlds[i];
+					}
+				}
+				catch { 
+				}
+			}
+			return null;
 		}
 
 		public World CreateNewWorld(World.FocusLevel focusLevel, bool localWorld = false, string sessionName = null) {

@@ -7,16 +7,20 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 using Newtonsoft.Json;
 
 using SharedModels;
 using SharedModels.Session;
+using SharedModels.UserInfo;
+using SharedModels.UserSession;
 
 using StereoKit;
 
@@ -101,11 +105,15 @@ namespace RhuEngine.Managers
 					User = data.Data.User;
 					IsLoggedIn = true;
 					login = true;
+					StartWebSocked();
 				}
 			}
 			if (!login) {
 				IsLoggedIn = false;
 				User = null;
+				_client?.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).Wait();
+				_client?.Dispose();
+				_client = null;
 			}
 			return data.Data;
 		}
@@ -130,6 +138,17 @@ namespace RhuEngine.Managers
 			}
 		}
 
+		public async Task<UserStatus> GetUserStatus(string id) {
+			try {
+				var data = await SendGet<UserStatus>($"/api/userinfo/UserStatus?id={id}");
+				return data.Data;
+			}
+			catch (HttpRequestException requestException) {
+				throw ProssesHttpRequestException(requestException);
+			}
+		}
+
+
 		public async Task<LoginResponse> GetMe() {
 			try {
 				var data = await SendGet<LoginResponse>("/api/authentication/GetMe");
@@ -140,9 +159,19 @@ namespace RhuEngine.Managers
 			}
 		}
 
-		public async Task<IEnumerable<SessionInfo>> GetSessions() {
+		public async Task<IEnumerable<RelayHolePunchServer>> GetRelayHoleServers() {
 			try {
-				var data = await SendGet<IEnumerable<SessionInfo>>("/api/SessionInfo/GetAllSessions");
+				var data = await SendGet<IEnumerable<RelayHolePunchServer>>($"/RelayHoleServers");
+				return data.Data;
+			}
+			catch (HttpRequestException requestException) {
+				throw ProssesHttpRequestException(requestException);
+			}
+		}
+
+		public async Task<IEnumerable<SessionInfo>> GetSessions(uint StartPos = 0,uint Amount = 10) {
+			try {
+				var data = await SendGet<IEnumerable<SessionInfo>>($"/api/SessionInfo/GetSessions?start={StartPos}&amount={Amount}");
 				return data.Data;
 			}
 			catch (HttpRequestException requestException) {
@@ -195,13 +224,13 @@ namespace RhuEngine.Managers
 			}
 			using Stream stream = File.Create(file);
 			try {
-				StereoKit.Log.Info("Writing cookies to disk...");
+				Log.Info("Writing cookies to disk...");
 				var formatter = new BinaryFormatter();
 				formatter.Serialize(stream, cookieJar);
-				StereoKit.Log.Info("Done.");
+				Log.Info("Done.");
 			}
 			catch (Exception e) {
-				StereoKit.Log.Err("Problem writing cookies to disk: " + e.GetType());
+				Log.Err("Problem writing cookies to disk: " + e.GetType());
 			}
 		}
 
@@ -249,6 +278,9 @@ namespace RhuEngine.Managers
 					Log.Err($"Failed To Clear Cookies {ex}");
 				}
 				WriteCookiesToDisk(_cookiePath, Cookies);
+				_client?.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).Wait();
+				_client?.Dispose();
+				_client = null;
 			}
 		}
 
@@ -257,9 +289,9 @@ namespace RhuEngine.Managers
 		}
 
 		public Uri BaseAddress =>
-				//_httpClient?.BaseAddress ?? new Uri("http://localhost:5000/"); 
+				_httpClient?.BaseAddress ?? new Uri("http://localhost:5000/"); 
 #if DEBUG
-				_httpClient?.BaseAddress ?? new Uri("https://unstable.family/");
+				//_httpClient?.BaseAddress ?? new Uri("https://unstable.family/");
 #else
 				_httpClient?.BaseAddress ?? new Uri("https://RhubarbVR.net/");
 #endif
@@ -312,6 +344,9 @@ namespace RhuEngine.Managers
 		public void IsGoneOfline() {
 			User = null;
 			IsLoggedIn = false;
+			_client?.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).Wait();
+			_client?.Dispose();
+			_client = null;
 		}
 
 		public static bool CheckForInternetConnection(int timeoutMs = 10000, string url = null) {
@@ -345,7 +380,120 @@ namespace RhuEngine.Managers
 			var foundCert = chain.ChainElements[1].Certificate.RawData;
 			return LetsEncrypt.Any((val) => val.SequenceEqual(foundCert));
 		}
+		private UserStatus _status;
+		public UserStatus UserStatus
+		{
+			get => _status;
+			set {
+				_status = value;
+				SendDataToSocked(new SessionRequest { RequestType = RequestType.StatusUpdate, RequestData = JsonConvert.SerializeObject(value) });
+			}
+		}
 
+		private ClientWebSocket _client;
+
+		public void SendDataToSocked(SessionRequest sessionRequest) {
+			var sessionReqwest = JsonConvert.SerializeObject(sessionRequest);
+			Log.Info(sessionReqwest);
+			_client?.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(sessionReqwest)), WebSocketMessageType.Text, true, CancellationToken.None);
+		}
+
+		public void StartWebSocked() {
+			try {
+				if(User == null) {
+					Log.Err("Can not Start WebSocket Client not login");
+					return;
+				}
+				Log.Info("Starting WebSocket Client");
+				_client = new ClientWebSocket();
+				var cernts = new X509CertificateCollection();
+				foreach (var item in LetsEncrypt) {
+					cernts.Add(new X509Certificate(item));
+				}
+				_client.Options.ClientCertificates = cernts;
+				var dist = new Uri(BaseAddress, "/ws/userSession");
+				var uri = new UriBuilder(dist) {
+					//Check if Android so it can be insecure 
+					Scheme = ((dist.Scheme == Uri.UriSchemeHttps) && !RuntimeInformation.FrameworkDescription.StartsWith("Mono ")) ? "wss" : "ws",
+					Port = RuntimeInformation.FrameworkDescription.StartsWith("Mono ") ? 80 : dist.Port
+				};
+				//this disgusts me i needed the auth cookie if android
+				if (RuntimeInformation.FrameworkDescription.StartsWith("Mono ")) {
+					Cookies.SetCookies(uri.Uri, Cookies.GetCookieHeader(BaseAddress));
+				}
+				_client.Options.Cookies = Cookies;
+				//Its for the quest users aaaaaaa
+				Log.Info($"Using {uri.Uri}");
+				var connection = _client.ConnectAsync(uri.Uri, CancellationToken.None);
+				connection.Wait();
+				Log.Info($"WebSocket Client {connection.Status}");
+				Task.Run(() => {
+					_client?.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("Start Conection")), WebSocketMessageType.Text, true, CancellationToken.None);
+					while (_client.State == WebSocketState.Open) {
+						var buffer = new ArraySegment<byte>(new byte[1024]);
+						var task = _client.ReceiveAsync(buffer, CancellationToken.None);
+						task.Wait();
+						try {
+							var reqwest = JsonConvert.DeserializeObject<SessionRequest>(Encoding.UTF8.GetString(buffer.Array));
+							if (reqwest != null) {
+								switch (reqwest.RequestType) {
+									case RequestType.SessionError:
+										Log.Info($"SessionError res");
+										var eworld = Engine.worldManager.GetWorldBySessionID(reqwest.ID);
+										if (eworld != null) {
+											Log.Err($"Error with session {reqwest.ID} error:{reqwest.RequestData}");
+											eworld.LoadMsg = reqwest.RequestData;
+											eworld.Dispose();
+										}
+										break;
+									case RequestType.ConnectToUser:
+										Log.Info($"ConnectToUser res");
+										var cworld = Engine.worldManager.GetWorldBySessionID(reqwest.ID);
+										if (cworld != null) {
+											cworld.ConnectToUser(JsonConvert.DeserializeObject<ConnectToUser>(reqwest.RequestData));
+										}
+										break;
+									case RequestType.SessionID:
+										Log.Info($"SessionID res");
+										var world = Engine.worldManager.GetWorldBySessionID(reqwest.ID);
+										if (world != null) {
+											if (world.SessionID.Value != reqwest.RequestData) {
+												world.SessionID.Value = reqwest.RequestData;
+												Log.Info(world.SessionID.Value);
+											}
+											else {
+												world.IsDeserializing = true;
+												world.IsLoadingNet = false;
+											}
+										}
+										break;
+									case RequestType.LoadStartingStatus:
+										Log.Info($"LoadStartingStatus res");
+										Task.Run(async () => {
+											var oldstatus = await GetUserStatus(User.Id);
+											if (oldstatus.Status == Status.Offline) {
+												oldstatus.Status = Status.Invisible;
+											}
+											oldstatus.ClientVersion = Engine.version.ToString();
+											oldstatus.Devices = Environment.OSVersion.Platform.ToString() + " on " + RuntimeInformation.FrameworkDescription;
+											UserStatus = oldstatus;
+										});
+										break;
+									default:
+										break;
+								}
+							}
+						}
+						catch {
+
+						}
+					}
+				});
+			}
+			catch (Exception e) {
+				Log.Err($"Faild to start WebSocket Client {e}");
+			}
+		}
 		public void Step() {
 		}
 	}
