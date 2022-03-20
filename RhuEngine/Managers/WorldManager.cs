@@ -80,7 +80,7 @@ namespace RhuEngine.Managers
 		}
 
 		public World GetWorldBySessionID(string sessionID) {
-			for (var i = 0; i < worlds.Count; i++) {
+			for (var i = worlds.Count - 1; i >= 0; i--) {
 				try {
 					if (worlds[i].SessionID.Value == sessionID) {
 						return worlds[i];

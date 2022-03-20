@@ -10,6 +10,7 @@ using RhuEngine.AssetSystem;
 using StereoKit;
 using RhuEngine.Components;
 using SharedModels.Session;
+using SharedModels.UserSession;
 
 namespace RhuEngine.WorldObjects
 {
@@ -109,6 +110,10 @@ namespace RhuEngine.WorldObjects
 						worldManager.FocusedWorld = this;
 						if (GetLocalUser() is not null) {
 							GetLocalUser().isPresent.Value = true;
+						}
+						if (Engine.netApiManager.UserStatus is not null) {
+							Engine.netApiManager.UserStatus.CurrentSession = SessionID.Value;
+							Engine.netApiManager.UserStatus = Engine.netApiManager.UserStatus;
 						}
 					}
 					else {
@@ -258,6 +263,9 @@ namespace RhuEngine.WorldObjects
 				}
 			}
 			catch { }
+			if (IsNetworked) {
+				Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = SessionID.Value, RequestType = RequestType.LeaveSession });
+			}
 			try {
 				_netManager?.DisconnectAll();
 			}
