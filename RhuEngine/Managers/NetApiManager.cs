@@ -480,7 +480,11 @@ namespace RhuEngine.Managers
 											if (oldstatus.Status == Status.Offline) {
 												oldstatus.Status = Status.Invisible;
 											}
-											oldstatus.ClientVersion = Engine.version.ToString();
+#if DEBUG
+											oldstatus.ClientVersion = $"Milksnake {Engine.version.Major}{Engine.version.Minor}";
+#else
+											oldstatus.ClientVersion =  $"RhubarbVR {Engine.version.Major}{Engine.version.Minor}";
+#endif
 											oldstatus.Devices = Environment.OSVersion.Platform.ToString() + " on " + RuntimeInformation.FrameworkDescription;
 											UserStatus = oldstatus;
 										});

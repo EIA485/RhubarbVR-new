@@ -102,7 +102,7 @@ namespace RhuEngine.Components.PrivateSpace.Windows
 							try {
 								var data = await Engine.netApiManager.Login(email, password);
 								error = data is null ? "Unknown Error" : !data.Login ? data.Message : data.Message;
-								if (data.Login) {
+								if (data?.Login??false) {
 									sessions = (await Engine.netApiManager.GetSessions()).ToArray();
 								}
 							}
