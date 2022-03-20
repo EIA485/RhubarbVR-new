@@ -240,6 +240,7 @@ namespace RhuEngine.WorldObjects
 		}
 
 		public bool IsDisposed { get; private set; }
+		public bool HasError { get; internal set; }
 
 		public void Dispose() {
 			if (IsDisposed) {
@@ -264,7 +265,9 @@ namespace RhuEngine.WorldObjects
 			}
 			catch { }
 			if (IsNetworked) {
-				Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = SessionID.Value, RequestType = RequestType.LeaveSession });
+				if (!HasError) {
+					Engine.netApiManager.SendDataToSocked(new SessionRequest { ID = SessionID.Value, RequestData = SessionID.Value, RequestType = RequestType.LeaveSession });
+				}
 			}
 			try {
 				_netManager?.DisconnectAll();

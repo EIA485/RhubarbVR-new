@@ -289,12 +289,8 @@ namespace RhuEngine.Managers
 		}
 
 		public Uri BaseAddress =>
-				_httpClient?.BaseAddress ?? new Uri("http://localhost:5000/"); 
-#if DEBUG
-				//_httpClient?.BaseAddress ?? new Uri("https://unstable.family/");
-#else
-				_httpClient?.BaseAddress ?? new Uri("https://RhubarbVR.net/");
-#endif
+				//_httpClient?.BaseAddress ?? new Uri("http://localhost:5000/"); 
+				_httpClient?.BaseAddress ?? new Uri("https://rhubarbvr.net/");
 		public NetApiManager(string path) {
 			_cookiePath = path is null ? Engine.BaseDir + "\\RhuCookies" : path + "\\RhuCookies";
 		}
@@ -344,7 +340,10 @@ namespace RhuEngine.Managers
 		public void IsGoneOfline() {
 			User = null;
 			IsLoggedIn = false;
-			_client?.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).Wait();
+			try {
+				_client?.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).Wait();
+			}
+			catch { }
 			_client?.Dispose();
 			_client = null;
 		}
@@ -429,10 +428,16 @@ namespace RhuEngine.Managers
 				Log.Info($"WebSocket Client {connection.Status}");
 				Task.Run(() => {
 					_client?.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("Start Conection")), WebSocketMessageType.Text, true, CancellationToken.None);
-					while (_client.State == WebSocketState.Open) {
+					while ((_client?.State??WebSocketState.Closed) == WebSocketState.Open) {
 						var buffer = new ArraySegment<byte>(new byte[1024]);
 						var task = _client.ReceiveAsync(buffer, CancellationToken.None);
-						task.Wait();
+						try {
+							task.Wait();
+						}
+						catch {
+							Log.Err("WebSockedLost");
+							IsGoneOfline();
+						}
 						try {
 							var reqwest = JsonConvert.DeserializeObject<SessionRequest>(Encoding.UTF8.GetString(buffer.Array));
 							if (reqwest != null) {
@@ -443,6 +448,7 @@ namespace RhuEngine.Managers
 										if (eworld != null) {
 											Log.Err($"Error with session {reqwest.ID} error:{reqwest.RequestData}");
 											eworld.LoadMsg = reqwest.RequestData;
+											eworld.HasError = true;
 											eworld.Dispose();
 										}
 										break;
