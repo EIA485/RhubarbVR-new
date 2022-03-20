@@ -18,6 +18,8 @@ using RhuEngine.Datatypes;
 using RhuEngine.Managers;
 
 using SharedModels;
+using SharedModels.GameSpecific;
+using SharedModels.Session;
 
 using StereoKit;
 

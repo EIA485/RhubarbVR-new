@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 using SharedModels;
+using SharedModels.Session;
 
 using StereoKit;
 
